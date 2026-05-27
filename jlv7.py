@@ -307,7 +307,8 @@ if __name__ == '__main__':
     print(f"\n local : http://localhost:5000")
     print(f"\n Réseau : http://{local_ip}:5000")
     print(f"\n Partagez l'adresse suivante à vos adversaires \n")
-    socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+    #socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+    socketio.run(app)
 
     
 
