@@ -300,15 +300,15 @@ def on_make_move(data):
 
 if __name__ == '__main__':
     init_db()
-    import socket
-    hostname = socket.gethostname()
-    local_ip = socket.gethostbyname(hostname)
-    print(f"\n Game - Serveur lancé !")
-    print(f"\n local : http://localhost:5000")
-    print(f"\n Réseau : http://{local_ip}:5000")
-    print(f"\n Partagez l'adresse suivante à vos adversaires \n")
-    #socketio.run(app, host='0.0.0.0', port=5000, debug=False)
-    socketio.run(app)
+    # import socket
+    # hostname = socket.gethostname()
+    # local_ip = socket.gethostbyname(hostname)
+    # print(f"\n Game - Serveur lancé !")
+    # print(f"\n local : http://localhost:5000")
+    # print(f"\n Réseau : http://{local_ip}:5000")
+    # print(f"\n Partagez l'adresse suivante à vos adversaires \n")
+    socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+    # socketio.run(app)
 
     
 
