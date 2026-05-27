@@ -1,0 +1,391 @@
+{% extends "base.html" %}
+{% block title %}Partie en cours — Nim{% endblock %}
+{% block content %}
+<style>
+  .game-layout {
+    display: grid;
+    grid-template-columns: 1fr 280px;
+    gap: 1.5rem;
+    max-width: 1000px;
+    margin: 1.5rem auto;
+    padding: 0 1.5rem;
+  }
+  /* PLATEAU */
+  .board { display: flex; flex-direction: column; gap: 1.5rem; }
+  .row-container {
+    display: flex;
+    align-items: center;
+    gap: 1.5rem;
+  }
+  .row-label {
+    font-size: 0.8rem;
+    color: var(--muted);
+    width: 60px;
+    text-align: right;
+    font-weight: 600;
+    letter-spacing: 1px;
+  }
+  .matches-row {
+    display: flex;
+    gap: 12px;
+    align-items: flex-end;
+    min-height: 80px;
+  }
+  .match {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    cursor: pointer;
+    transition: transform 0.15s;
+  }
+  .match:hover .match-tip { background: #ff6b6b; }
+  .match:hover .match-stick { background: #e8c068; }
+  .match.selected .match-tip { background: var(--accent2); box-shadow: 0 0 8px var(--accent2); }
+  .match.selected .match-stick { background: #f0d080; }
+  .match.empty { opacity: 0.1; cursor: default; pointer-events: none; }
+  .match-tip {
+    width: 10px; height: 14px;
+    background: var(--match-tip);
+    border-radius: 50% 50% 30% 30%;
+    transition: background 0.15s;
+  }
+  .match-stick {
+    width: 5px; height: 64px;
+    background: var(--match-wood);
+    border-radius: 0 0 3px 3px;
+    transition: background 0.15s;
+  }
+  .match.disabled { cursor: not-allowed; }
+  .match.disabled:hover .match-tip { background: var(--match-tip); }
+  .match.disabled:hover .match-stick { background: var(--match-wood); }
+  /* CONTROLES */
+  .row-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+  }
+  .btn-take {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 0.3rem 0.7rem;
+    color: var(--muted);
+    font-size: 0.85rem;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .btn-take:hover { border-color: var(--accent2); color: var(--accent2); }
+  .btn-take.active { background: var(--accent); border-color: var(--accent); color: white; }
+  /* STATUT */
+  .status-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 1.25rem;
+    text-align: center;
+  }
+  .player-badge {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.75rem 1rem;
+    border-radius: 8px;
+    margin-bottom: 0.5rem;
+    font-weight: 600;
+  }
+  .player-badge.active-turn {
+    background: rgba(246,173,85,0.15);
+    border: 1px solid var(--accent2);
+  }
+  .player-badge.inactive-turn {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    color: var(--muted);
+  }
+  .turn-arrow { font-size: 1.2rem; }
+  /* GAGNANT */
+  .winner-overlay {
+    display: none;
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,0.8);
+    z-index: 100;
+    align-items: center;
+    justify-content: center;
+  }
+  .winner-overlay.active { display: flex; }
+  .winner-card {
+    background: var(--surface);
+    border: 2px solid var(--accent2);
+    border-radius: 20px;
+    padding: 3rem 2.5rem;
+    text-align: center;
+    max-width: 400px;
+    animation: popIn 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+  }
+  @keyframes popIn {
+    from { transform: scale(0.7); opacity: 0; }
+    to { transform: scale(1); opacity: 1; }
+  }
+  .winner-emoji { font-size: 4rem; margin-bottom: 0.5rem; }
+  .winner-title { font-size: 1.8rem; font-weight: 800; margin-bottom: 0.5rem; }
+  .winner-subtitle { color: var(--muted); margin-bottom: 1.5rem; }
+  .elo-badge {
+    display: inline-block;
+    padding: 0.4rem 1rem;
+    border-radius: 20px;
+    font-weight: 700;
+    font-size: 1.1rem;
+    margin-bottom: 1.5rem;
+  }
+  .elo-gain { background: rgba(72,187,120,0.2); color: var(--green); border: 1px solid var(--green); }
+  .elo-loss { background: rgba(229,62,62,0.2); color: var(--accent); border: 1px solid var(--accent); }
+  /* LOG */
+  .move-log {
+    max-height: 200px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+  }
+  .log-entry {
+    font-size: 0.8rem;
+    color: var(--muted);
+    padding: 0.25rem 0.5rem;
+    background: var(--surface2);
+    border-radius: 4px;
+  }
+</style>
+
+<div class="game-layout">
+  <!-- PLATEAU -->
+  <div>
+    <div class="card" style="margin-bottom:1rem;">
+      <div id="turn-status" style="text-align:center;font-size:1.1rem;font-weight:700;padding:0.5rem 0;color:var(--accent2);">
+        Connexion…
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-title">🎮 Plateau</div>
+      <div class="board" id="board">
+        <!-- Rangées générées par JS -->
+      </div>
+    </div>
+  </div>
+
+  <!-- SIDEBAR -->
+  <div style="display:flex;flex-direction:column;gap:1rem;">
+    <!-- JOUEURS -->
+    <div class="card">
+      <div class="card-title">Joueurs</div>
+      <div id="p1-badge" class="player-badge inactive-turn">
+        <span id="p1-name">—</span>
+        <span class="turn-arrow" id="p1-arrow"></span>
+      </div>
+      <div id="p2-badge" class="player-badge inactive-turn">
+        <span id="p2-name">—</span>
+        <span class="turn-arrow" id="p2-arrow"></span>
+      </div>
+    </div>
+
+    <!-- LOG -->
+    <div class="card">
+      <div class="card-title">Historique des coups</div>
+      <div class="move-log" id="move-log">
+        <div class="log-entry">En attente du premier coup…</div>
+      </div>
+    </div>
+
+    <!-- AIDE -->
+    <div class="card" style="font-size:0.82rem;color:var(--muted);line-height:1.7;">
+      <div class="card-title">Rappel des règles</div>
+      Clique sur les allumettes d'une rangée pour les sélectionner, puis confirme.<br><br>
+      Celui qui prend la <strong style="color:var(--accent);">dernière allumette perd</strong>.
+    </div>
+  </div>
+</div>
+
+<!-- ÉCRAN FIN DE PARTIE -->
+<div class="winner-overlay" id="winner-overlay">
+  <div class="winner-card">
+    <div class="winner-emoji" id="winner-emoji">🏆</div>
+    <div class="winner-title" id="winner-title">—</div>
+    <div class="winner-subtitle" id="winner-subtitle">—</div>
+    <div class="elo-badge" id="elo-badge"></div>
+    <br>
+    <a href="/lobby" class="btn btn-primary" style="padding:0.7rem 2rem;">Retour au lobby</a>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.5/socket.io.min.js"></script>
+<script>
+  const ME = "{{ username }}";
+  const ROOM_ID = "{{ room_id }}";
+  const socket = io();
+
+  let gameState = null;
+  let selectedRow = null;
+  let selectedCount = 0;
+  let lastBoard = null;
+
+  socket.on('connect', () => {
+    socket.emit('join_game', { room_id: ROOM_ID });
+  });
+
+  socket.on('game_state', (state) => {
+    const prevBoard = lastBoard ? [...lastBoard] : null;
+    lastBoard = [...state.board];
+    if (prevBoard) logMove(prevBoard, state.board, gameState ? gameState.current : null);
+    gameState = state;
+    selectedRow = null;
+    selectedCount = 0;
+    renderGame();
+    if (state.finished) showWinner(state);
+  });
+
+  socket.on('flash', (data) => showToast(data.msg, data.type));
+
+  function logMove(prev, curr, who) {
+    for (let i = 0; i < 4; i++) {
+      const diff = prev[i] - curr[i];
+      if (diff > 0) {
+        const log = document.getElementById('move-log');
+        const entry = document.createElement('div');
+        entry.className = 'log-entry';
+        entry.textContent = `${who || '?'} retire ${diff} de la rangée ${i+1}`;
+        log.prepend(entry);
+        break;
+      }
+    }
+  }
+
+  function renderGame() {
+    if (!gameState) return;
+    const isMyTurn = gameState.current === ME && !gameState.finished;
+
+    // Statut du tour
+    const turnEl = document.getElementById('turn-status');
+    if (gameState.finished) {
+      turnEl.textContent = '🏁 Partie terminée';
+    } else if (isMyTurn) {
+      turnEl.textContent = '👆 À votre tour de jouer !';
+      turnEl.style.color = 'var(--green)';
+    } else {
+      turnEl.textContent = `⏳ Tour de ${gameState.current}…`;
+      turnEl.style.color = 'var(--muted)';
+    }
+
+    // Badges joueurs
+    const p1Active = gameState.current === gameState.player1 && !gameState.finished;
+    const p2Active = gameState.current === gameState.player2 && !gameState.finished;
+    document.getElementById('p1-name').textContent = gameState.player1 + (gameState.player1 === ME ? ' (vous)' : '');
+    document.getElementById('p2-name').textContent = gameState.player2 + (gameState.player2 === ME ? ' (vous)' : '');
+    document.getElementById('p1-badge').className = `player-badge ${p1Active ? 'active-turn' : 'inactive-turn'}`;
+    document.getElementById('p2-badge').className = `player-badge ${p2Active ? 'active-turn' : 'inactive-turn'}`;
+    document.getElementById('p1-arrow').textContent = p1Active ? '▶' : '';
+    document.getElementById('p2-arrow').textContent = p2Active ? '▶' : '';
+
+    // Plateau
+    const board = document.getElementById('board');
+    board.innerHTML = '';
+    gameState.board.forEach((count, rowIdx) => {
+      const MAX = [1,3,5,7][rowIdx];
+      const row = document.createElement('div');
+      row.style.cssText = 'display:flex;flex-direction:column;gap:0.75rem;';
+
+      // Rangée d'allumettes
+      const matchRow = document.createElement('div');
+      matchRow.className = 'row-container';
+      matchRow.innerHTML = `<div class="row-label">Rangée ${rowIdx+1}</div>`;
+
+      const matchesDiv = document.createElement('div');
+      matchesDiv.className = 'matches-row';
+
+      for (let m = 0; m < MAX; m++) {
+        const match = document.createElement('div');
+        const isEmpty = m >= count;
+        match.className = 'match' + (isEmpty ? ' empty' : '') + (!isMyTurn ? ' disabled' : '');
+
+        if (!isEmpty && isMyTurn && selectedRow === rowIdx && m < selectedCount) {
+          match.classList.add('selected');
+        }
+        match.innerHTML = `<div class="match-tip"></div><div class="match-stick"></div>`;
+
+        if (!isEmpty && isMyTurn) {
+          match.addEventListener('click', () => selectMatch(rowIdx, m + 1));
+        }
+        matchesDiv.appendChild(match);
+      }
+      matchRow.appendChild(matchesDiv);
+      row.appendChild(matchRow);
+
+      // Boutons "prendre N"
+      if (count > 0 && isMyTurn) {
+        const actions = document.createElement('div');
+        actions.style.cssText = 'display:flex;gap:0.5rem;align-items:center;padding-left:76px;flex-wrap:wrap;';
+        actions.innerHTML = `<span style="color:var(--muted);font-size:0.8rem;">Prendre :</span>`;
+        for (let n = 1; n <= count; n++) {
+          const btn = document.createElement('button');
+          btn.className = 'btn-take' + (selectedRow === rowIdx && selectedCount === n ? ' active' : '');
+          btn.textContent = n;
+          btn.addEventListener('click', () => selectAndConfirm(rowIdx, n));
+          actions.appendChild(btn);
+        }
+        row.appendChild(actions);
+      }
+
+      board.appendChild(row);
+    });
+  }
+
+  function selectMatch(rowIdx, count) {
+    if (selectedRow === rowIdx && selectedCount === count) {
+      confirmMove();
+    } else {
+      selectedRow = rowIdx;
+      selectedCount = count;
+      renderGame();
+    }
+  }
+
+  function selectAndConfirm(rowIdx, count) {
+    selectedRow = rowIdx;
+    selectedCount = count;
+    confirmMove();
+  }
+
+  function confirmMove() {
+    if (selectedRow === null || selectedCount < 1) return;
+    socket.emit('make_move', {
+      room_id: ROOM_ID,
+      row: selectedRow,
+      count: selectedCount
+    });
+    selectedRow = null;
+    selectedCount = 0;
+  }
+
+  function showWinner(state) {
+    const iWon = state.winner === ME;
+    document.getElementById('winner-emoji').textContent = iWon ? '🏆' : '💀';
+    document.getElementById('winner-title').textContent = iWon ? 'Victoire !' : 'Défaite…';
+    document.getElementById('winner-subtitle').textContent = iWon
+      ? `Bravo ${ME}, vous avez gagné !`
+      : `${state.winner} a remporté la partie.`;
+
+    const eloBadge = document.getElementById('elo-badge');
+    const change = state.elo_change || 0;
+    if (iWon) {
+      eloBadge.className = 'elo-badge elo-gain';
+      eloBadge.textContent = `+${change} ELO`;
+    } else {
+      eloBadge.className = 'elo-badge elo-loss';
+      eloBadge.textContent = `−${change} ELO`;
+    }
+
+    document.getElementById('winner-overlay').classList.add('active');
+  }
+</script>
+{% endblock %}

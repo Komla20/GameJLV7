@@ -1,0 +1,184 @@
+{% extends "base.html" %}
+{% block title %}Lobby — Nim{% endblock %}
+{% block content %}
+<div class="container">
+  <div style="display:grid;grid-template-columns:1fr 320px;gap:1.5rem;margin-top:1.5rem;">
+
+    <!-- COLONNE GAUCHE -->
+    <div style="display:flex;flex-direction:column;gap:1.5rem;">
+
+      <!-- MATCHMAKING -->
+      <div class="card">
+        <div class="card-title">⚡ Matchmaking rapide</div>
+        <p style="color:var(--muted);font-size:0.9rem;margin-bottom:1rem;">
+          Rejoins la file d'attente — le premier adversaire disponible sera ton ennemi.
+        </p>
+        <div style="display:flex;gap:1rem;align-items:center;">
+          <button id="btn-queue" class="btn btn-green" onclick="joinQueue()">Chercher une partie</button>
+          <button id="btn-leave-queue" class="btn btn-ghost" style="display:none;" onclick="leaveQueue()">Quitter la file</button>
+          <span id="queue-status" style="color:var(--muted);font-size:0.9rem;"></span>
+        </div>
+      </div>
+
+      <!-- JOUEURS EN LIGNE -->
+      <div class="card">
+        <div class="card-title">🟢 Joueurs en ligne</div>
+        <div id="online-list" style="display:flex;flex-wrap:wrap;gap:0.5rem;">
+          <span style="color:var(--muted);font-size:0.9rem;">Chargement…</span>
+        </div>
+      </div>
+
+      <!-- CLASSEMENT ELO -->
+      <div class="card">
+        <div class="card-title">🏆 Classement ELO</div>
+        <table id="leaderboard" style="width:100%;border-collapse:collapse;font-size:0.9rem;">
+          <thead>
+            <tr style="color:var(--muted);border-bottom:1px solid var(--border);">
+              <th style="padding:0.4rem 0.6rem;text-align:left;">#</th>
+              <th style="padding:0.4rem 0.6rem;text-align:left;">Joueur</th>
+              <th style="padding:0.4rem 0.6rem;text-align:right;">ELO</th>
+              <th style="padding:0.4rem 0.6rem;text-align:right;">V</th>
+              <th style="padding:0.4rem 0.6rem;text-align:right;">D</th>
+            </tr>
+          </thead>
+          <tbody id="lb-body"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- COLONNE DROITE -->
+    <div style="display:flex;flex-direction:column;gap:1.5rem;">
+      <div class="card" style="text-align:center;padding:2rem 1.5rem;">
+        <div style="font-size:2.5rem;margin-bottom:0.5rem;">🔥</div>
+        <div style="font-weight:700;font-size:1.1rem;margin-bottom:0.25rem;">{{ username }}</div>
+        <div id="my-elo" style="color:var(--accent2);font-size:1.5rem;font-weight:800;">—</div>
+        <div id="my-record" style="color:var(--muted);font-size:0.85rem;margin-top:0.25rem;">— V / — D</div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">📖 Règles</div>
+        <div style="color:var(--muted);font-size:0.85rem;line-height:1.7;">
+          <p>Plateau : <strong style="color:var(--text);">1 · 3 · 5 · 7</strong> allumettes</p>
+          <br>
+          <p>À ton tour, retire <strong style="color:var(--text);">autant d'allumettes que tu veux</strong> dans <strong style="color:var(--text);">une seule rangée</strong>.</p>
+          <br>
+          <p>Celui qui prend la <strong style="color:var(--accent);">dernière allumette perd</strong>.</p>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- MODAL DÉFI REÇU -->
+<div class="modal-overlay" id="challenge-modal">
+  <div class="modal">
+    <div style="font-size:2rem;margin-bottom:0.5rem;">⚔️</div>
+    <h2>Défi reçu !</h2>
+    <p id="challenge-from-text">veut vous affronter</p>
+    <div class="modal-actions">
+      <button class="btn btn-green" onclick="acceptChallenge()">Accepter</button>
+      <button class="btn btn-ghost" onclick="declineChallenge()">Refuser</button>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.5/socket.io.min.js"></script>
+<script>
+  const ME = "{{ username }}";
+  const socket = io();
+  let challengerName = null;
+  let inQueue = false;
+
+  socket.on('connect', () => {});
+
+  socket.on('lobby_update', (data) => {
+    renderOnline(data.online);
+    renderLeaderboard(data.leaderboard);
+    renderQueue(data.queue);
+  });
+
+  socket.on('challenge_received', (data) => {
+    challengerName = data.from;
+    document.getElementById('challenge-from-text').textContent = `${data.from} vous défie !`;
+    document.getElementById('challenge-modal').classList.add('active');
+  });
+
+  socket.on('game_start', (data) => {
+    window.location.href = `/game/${data.room_id}`;
+  });
+
+  socket.on('flash', (data) => {
+    showToast(data.msg, data.type);
+  });
+
+  function renderOnline(users) {
+    const list = document.getElementById('online-list');
+    if (!users.length) {
+      list.innerHTML = '<span style="color:var(--muted);font-size:0.9rem;">Personne en ligne</span>';
+      return;
+    }
+    list.innerHTML = users.map(u => {
+      if (u === ME) {
+        return `<span style="background:var(--surface2);border:1px solid var(--border);padding:0.3rem 0.75rem;border-radius:20px;font-size:0.85rem;">👤 ${u} <em style="color:var(--muted)">(vous)</em></span>`;
+      }
+      return `<span style="background:var(--surface2);border:1px solid var(--border);padding:0.3rem 0.75rem;border-radius:20px;font-size:0.85rem;display:inline-flex;align-items:center;gap:0.5rem;">
+        ${u}
+        <button onclick="challenge('${u}')" style="background:var(--accent);border:none;border-radius:4px;padding:0.1rem 0.4rem;color:white;font-size:0.75rem;cursor:pointer;font-weight:600;">Défier</button>
+      </span>`;
+    }).join('');
+  }
+
+  function renderLeaderboard(lb) {
+    const medals = ['🥇','🥈','🥉'];
+    document.getElementById('lb-body').innerHTML = lb.map((p, i) => {
+      const isMe = p.username === ME;
+      const style = isMe ? 'background:var(--surface2);' : '';
+      const rank = i < 3 ? medals[i] : `${i+1}`;
+      const total = p.wins + p.losses;
+      if (isMe) {
+        document.getElementById('my-elo').textContent = p.elo;
+        document.getElementById('my-record').textContent = `${p.wins} V / ${p.losses} D`;
+      }
+      return `<tr style="${style}border-bottom:1px solid var(--border);">
+        <td style="padding:0.5rem 0.6rem;color:var(--muted);">${rank}</td>
+        <td style="padding:0.5rem 0.6rem;font-weight:${isMe?700:400};">${p.username}${isMe?' <em style="color:var(--muted);font-weight:400;">(vous)</em>':''}</td>
+        <td style="padding:0.5rem 0.6rem;text-align:right;color:var(--accent2);font-weight:700;">${p.elo}</td>
+        <td style="padding:0.5rem 0.6rem;text-align:right;color:var(--green);">${p.wins}</td>
+        <td style="padding:0.5rem 0.6rem;text-align:right;color:var(--accent);">${p.losses}</td>
+      </tr>`;
+    }).join('');
+  }
+
+  function renderQueue(queue) {
+    const inQ = queue.includes(ME);
+    inQueue = inQ;
+    document.getElementById('btn-queue').style.display = inQ ? 'none' : 'inline-block';
+    document.getElementById('btn-leave-queue').style.display = inQ ? 'inline-block' : 'none';
+    document.getElementById('queue-status').textContent = inQ
+      ? `⏳ En attente… (${queue.length} joueur${queue.length>1?'s':''} en file)`
+      : (queue.length > 0 ? `${queue.length} joueur${queue.length>1?'s':''} en file` : '');
+  }
+
+  function challenge(username) {
+    socket.emit('challenge', { username });
+    showToast(`Défi envoyé à ${username}`, 'info');
+  }
+
+  function acceptChallenge() {
+    socket.emit('accept_challenge', { from: challengerName });
+    document.getElementById('challenge-modal').classList.remove('active');
+  }
+
+  function declineChallenge() {
+    socket.emit('decline_challenge', { from: challengerName });
+    document.getElementById('challenge-modal').classList.remove('active');
+    challengerName = null;
+  }
+
+  function joinQueue() { socket.emit('join_queue'); }
+  function leaveQueue() { socket.emit('leave_queue'); }
+</script>
+{% endblock %}
